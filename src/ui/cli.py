@@ -177,25 +177,29 @@ class CLI:
         print("RESPONSE")
         print("=" * 70)
 
-        # Check for errors
         if "error" in result:
             print(f"\n❌ Error: {result['error']}")
             return
 
-        # Display response
         response = result.get("response", "")
         print(f"\n{response}\n")
 
-        # Extract and display citations from conversation
-        citations = self._extract_citations(result)
+        citations = result.get("citations", [])
         if citations:
             print("\n" + "-" * 70)
             print("📚 CITATIONS")
             print("-" * 70)
-            for i, citation in enumerate(citations, 1):
-                print(f"[{i}] {citation}")
+            for citation in citations:
+                print(f"[{citation['index']}] {citation.get('title', '')} — {citation.get('url', '')}")
+        else:
+            extracted = self._extract_citations(result)
+            if extracted:
+                print("\n" + "-" * 70)
+                print("📚 CITATIONS")
+                print("-" * 70)
+                for i, citation in enumerate(extracted, 1):
+                    print(f"[{i}] {citation}")
 
-        # Display metadata
         metadata = result.get("metadata", {})
         if metadata:
             print("\n" + "-" * 70)
@@ -204,13 +208,26 @@ class CLI:
             print(f"  • Messages exchanged: {metadata.get('num_messages', 0)}")
             print(f"  • Sources gathered: {metadata.get('num_sources', 0)}")
             print(f"  • Agents involved: {', '.join(metadata.get('agents_involved', []))}")
-            # TODO: Display safety events and refusal/sanitization status here
-            # Suggested implementation:
-            # - Read safety metadata returned by the orchestrator
-            # - Print which policy category was triggered
-            # - Show whether the response was refused or sanitized
 
-        # Display conversation summary if verbose mode
+            safety_status = metadata.get("safety_status", {})
+            input_status = safety_status.get("input", {}) if isinstance(safety_status, dict) else {}
+            output_status = safety_status.get("output", {}) if isinstance(safety_status, dict) else {}
+
+            if input_status.get("action") == "refuse":
+                print("  • Safety: input refused by guardrail")
+            elif output_status.get("action") == "sanitize":
+                print("  • Safety: output sanitized by guardrail")
+
+            safety_events = metadata.get("safety_events", [])
+            if safety_events:
+                print("\n" + "-" * 70)
+                print("🛡️ SAFETY EVENTS")
+                print("-" * 70)
+                for event in safety_events[-5:]:
+                    print(f"  • {event.get('type', 'unknown').upper()} | safe={event.get('safe')} ")
+                    for violation in event.get("violations", []):
+                        print(f"      - {violation.get('reason', 'Unknown')}")
+
         if self._should_show_traces():
             self._display_conversation_summary(result.get("conversation_history", []))
 

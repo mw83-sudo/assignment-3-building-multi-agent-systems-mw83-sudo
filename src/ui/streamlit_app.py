@@ -57,12 +57,6 @@ def initialize_session_state():
 async def process_query(query: str) -> Dict[str, Any]:
     """
     Process a query through the orchestrator.
-    
-    Args:
-        query: Research query to process
-        
-    Returns:
-        Result dictionary with response, citations, and metadata
     """
     orchestrator = st.session_state.orchestrator
     
@@ -76,20 +70,14 @@ async def process_query(query: str) -> Dict[str, Any]:
         }
     
     try:
-        # Process query through AutoGen orchestrator
         result = orchestrator.process_query(query)
         
-        # Check for errors
         if "error" in result:
             return result
         
-        # Extract citations from conversation history
-        citations = extract_citations(result)
-        
-        # Extract agent traces for display
+        citations = result.get("citations", []) or extract_citations(result)
         agent_traces = extract_agent_traces(result)
         
-        # Format metadata
         metadata = result.get("metadata", {})
         metadata["agent_traces"] = agent_traces
         metadata["citations"] = citations
@@ -181,32 +169,36 @@ def calculate_quality_score(result: Dict[str, Any]) -> float:
 def display_response(result: Dict[str, Any]):
     """
     Display query response.
-
-    TODO: YOUR CODE HERE
-    - Format response nicely
-    - Show citations with links
-    - Display sources
-    - Show safety events if any
     """
-    # Check for errors
     if "error" in result:
         st.error(f"Error: {result['error']}")
         return
 
-    # Display response
+    metadata = result.get("metadata", {})
+    safety_status = metadata.get("safety_status", {})
+    input_status = safety_status.get("input", {}) if isinstance(safety_status, dict) else {}
+    output_status = safety_status.get("output", {}) if isinstance(safety_status, dict) else {}
+
+    if input_status.get("action") == "refuse":
+        st.error("Request refused by input guardrail.")
+    elif output_status.get("action") == "sanitize":
+        st.warning("Response was sanitized by output guardrail.")
+
     st.markdown("### Response")
     response = result.get("response", "")
     st.markdown(response)
 
-    # Display citations
     citations = result.get("citations", [])
     if citations:
         with st.expander("📚 Citations", expanded=False):
-            for i, citation in enumerate(citations, 1):
-                st.markdown(f"**[{i}]** {citation}")
+            for citation in citations:
+                url = citation.get("url")
+                label = citation.get("title", url)
+                if url:
+                    st.markdown(f"**[{citation['index']}]** [{label}]({url})")
+                else:
+                    st.markdown(f"**[{citation['index']}]** {label}")
 
-    # Display metadata
-    metadata = result.get("metadata", {})
     col1, col2 = st.columns(2)
     with col1:
         st.metric("Sources Used", metadata.get("num_sources", 0))
@@ -214,22 +206,14 @@ def display_response(result: Dict[str, Any]):
         score = metadata.get("critique_score", 0)
         st.metric("Quality Score", f"{score:.2f}")
 
-    # Safety events
     safety_events = metadata.get("safety_events", [])
     if safety_events:
-        with st.expander("⚠️ Safety Events", expanded=True):
+        with st.expander("⚠️ Safety Events", expanded=False):
             for event in safety_events:
-                event_type = event.get("type", "unknown")
-                action = event.get("action", "allow")
-                violations = event.get("violations", [])
-                st.warning(
-                    f"{event_type.upper()} ({action.upper()}): "
-                    f"{len(violations)} violation(s) detected"
-                )
-                for violation in violations:
-                    st.text(f"  • {violation.get('reason', 'Unknown')}")
+                st.markdown(f"**{event.get('type', 'unknown').upper()}**")
+                for violation in event.get("violations", []):
+                    st.write(f"- {violation.get('reason', 'Unknown')}")
 
-    # Agent traces
     if st.session_state.show_traces:
         agent_traces = metadata.get("agent_traces", {})
         if agent_traces:
@@ -239,11 +223,6 @@ def display_response(result: Dict[str, Any]):
 def display_agent_traces(traces: Dict[str, Any]):
     """
     Display agent execution traces.
-
-    TODO: YOUR CODE HERE
-    - Format traces nicely
-    - Show agent workflow
-    - Display timing information
     """
     with st.expander("🔍 Agent Traces", expanded=False):
         for agent_name, actions in traces.items():
@@ -277,7 +256,11 @@ def display_sidebar():
 
         # TODO: Get actual statistics
         st.metric("Total Queries", len(st.session_state.history))
-        st.metric("Safety Events", 0)  # TODO: Get from safety manager
+        if st.session_state.orchestrator is not None:
+            safety_stats = st.session_state.orchestrator.safety_manager.get_safety_stats()
+            st.metric("Safety Events", safety_stats.get("total_events", 0))
+        else:
+            st.metric("Safety Events", 0)
 
         st.divider()
 
@@ -393,8 +376,17 @@ def main():
     if st.session_state.show_safety_log:
         st.divider()
         st.markdown("### 🛡️ Safety Event Log")
-        # TODO: Display safety events from safety manager
-        st.info("No safety events recorded.")
+        if st.session_state.orchestrator is not None:
+            safety_events = st.session_state.orchestrator.safety_manager.get_safety_events()
+            if safety_events:
+                for event in safety_events:
+                    st.markdown(f"**{event.get('type', 'unknown').upper()}** — safe={event.get('safe')}")
+                    for violation in event.get("violations", []):
+                        st.write(f"- {violation.get('reason', 'Unknown')}")
+            else:
+                st.info("No safety events recorded.")
+        else:
+            st.info("No safety events recorded.")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@ from autogen_core.models import ModelFamily
 from src.tools.web_search import web_search
 from src.tools.paper_search import paper_search
 
+from functools import partial
+
 
 def create_model_client(config: Dict[str, Any]) -> OpenAIChatCompletionClient:
     """
@@ -165,22 +167,41 @@ You have access to tools for web search and paper search. When conducting resear
     else:
         system_message = default_system_message
 
-    # Wrap tools in FunctionTool
-    web_search_tool = FunctionTool(
-        web_search,
-        description="Search the web for articles, blog posts, and general information. Returns formatted search results with titles, URLs, and snippets."
-    )
-    
-    paper_search_tool = FunctionTool(
-        paper_search,
-        description="Search academic papers on Semantic Scholar. Returns papers with authors, abstracts, citation counts, and URLs. Use year_from parameter to filter recent papers."
-    )
+    # Read tool configuration from config.yaml
+    tools_config = config.get("tools", {})
+    web_cfg = tools_config.get("web_search", {})
+    paper_cfg = tools_config.get("paper_search", {})
+
+    researcher_tools = []
+
+    if web_cfg.get("enabled", True):
+        configured_web_search = partial(
+            web_search,
+            provider=web_cfg.get("provider", "tavily"),
+            max_results=web_cfg.get("max_results", 5),
+        )
+        web_search_tool = FunctionTool(
+            configured_web_search,
+            description="Search the web for articles, blog posts, and general information. Returns formatted search results with titles, URLs, and snippets."
+        )
+        researcher_tools.append(web_search_tool)
+
+    if paper_cfg.get("enabled", True):
+        configured_paper_search = partial(
+            paper_search,
+            max_results=paper_cfg.get("max_results", 10),
+        )
+        paper_search_tool = FunctionTool(
+            configured_paper_search,
+            description="Search academic papers on Semantic Scholar. Returns papers with authors, abstracts, citation counts, and URLs. Use year_from parameter to filter recent papers."
+        )
+        researcher_tools.append(paper_search_tool)
 
     # Create the researcher with tool access
     researcher = AssistantAgent(
         name="Researcher",
         model_client=model_client,
-        tools=[web_search_tool, paper_search_tool],
+        tools=researcher_tools,
         description="Gathers evidence from web and academic sources using search tools",
         system_message=system_message,
     )

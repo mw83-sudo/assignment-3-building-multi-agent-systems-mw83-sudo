@@ -25,6 +25,7 @@ import asyncio
 import inspect
 
 from .judge import LLMJudge
+from src.autogen_orchestrator import AutoGenOrchestrator
 
 
 class SystemEvaluator:
@@ -117,61 +118,32 @@ class SystemEvaluator:
         return report
 
     async def _evaluate_query(self, test_case: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Evaluate a single test query.
-
-        Args:
-            test_case: Test case with query and optional ground truth
-
-        Returns:
-            Evaluation result for this query
-
-        This shows how to integrate with the orchestrator.
-        """
         query = test_case.get("query", "")
         ground_truth = test_case.get("ground_truth")
-        expected_sources = test_case.get("expected_sources", [])
 
-        # Run through orchestrator if available
-        if self.orchestrator:
-            try:
-                # Call orchestrator's process_query method
-                # TODO: YOUR CODE HERE
-                # Need to implement this in their orchestrator
-                response_data = self.orchestrator.process_query(query)
-                
-                # If process_query is async, use:
-                # response_data = await self.orchestrator.process_query(query)
-                
-            except Exception as e:
-                self.logger.error(f"Error processing query through orchestrator: {e}")
-                response_data = {
-                    "query": query,
-                    "response": f"Error: {str(e)}",
-                    "citations": [],
-                    "metadata": {"error": str(e)}
-                }
-        else:
-            # Placeholder for testing without orchestrator
-            self.logger.warning("No orchestrator provided, using placeholder response")
+        try:
+            orchestrator = AutoGenOrchestrator(self.config)
+            response_data = orchestrator.process_query(query)
+        except Exception as e:
             response_data = {
                 "query": query,
-                "response": "Placeholder response - orchestrator not connected",
+                "response": f"Error: {str(e)}",
                 "citations": [],
-                "metadata": {"num_sources": 0}
+                "sources": [],
+                "metadata": {"error": str(e), "num_sources": 0}
             }
 
-        # Evaluate response using LLM-as-a-Judge
         evaluation = await self.judge.evaluate(
             query=query,
             response=response_data.get("response", ""),
-            sources=response_data.get("metadata", {}).get("sources", []),
+            sources=response_data.get("sources", response_data.get("metadata", {}).get("sources", [])),
             ground_truth=ground_truth
         )
 
         return {
             "query": query,
             "response": response_data.get("response", ""),
+            "sources": response_data.get("sources", response_data.get("metadata", {}).get("sources", [])),
             "evaluation": evaluation,
             "metadata": response_data.get("metadata", {}),
             "ground_truth": ground_truth
@@ -203,43 +175,55 @@ class SystemEvaluator:
     def _generate_report(self) -> Dict[str, Any]:
         """
         Generate evaluation report with statistics and analysis.
-
-        TODO: YOUR CODE HERE
-        - Calculate aggregate statistics
-        - Identify best/worst performing queries
-        - Analyze errors
-        - Generate visualizations (optional)
         """
         if not self.results:
             return {"error": "No results to report"}
 
-        # Calculate statistics
         total_queries = len(self.results)
-        successful = [r for r in self.results if "error" not in r]
-        failed = [r for r in self.results if "error" in r]
+        successful = [
+            r for r in self.results
+            if "error" not in r and not r.get("metadata", {}).get("error")
+        ]
+        failed = [
+            r for r in self.results
+            if "error" in r or r.get("metadata", {}).get("error")
+        ]
 
-        # Aggregate scores
         criterion_scores = {}
         overall_scores = []
+        error_buckets = {
+            "missing_sources": 0,
+            "low_evidence": 0,
+            "safety_flagged": 0,
+            "runtime_errors": len(failed),
+        }
 
         for result in successful:
             evaluation = result.get("evaluation", {})
             overall_scores.append(evaluation.get("overall_score", 0.0))
 
-            # Collect scores by criterion
             for criterion, score_data in evaluation.get("criterion_scores", {}).items():
                 if criterion not in criterion_scores:
                     criterion_scores[criterion] = []
                 criterion_scores[criterion].append(score_data.get("score", 0.0))
 
-        # Calculate averages
+            if not result.get("sources"):
+                error_buckets["missing_sources"] += 1
+
+            if result.get("metadata", {}).get("num_sources", 0) < 2:
+                error_buckets["low_evidence"] += 1
+
+            safety_status = result.get("metadata", {}).get("safety_status", {})
+            output_status = safety_status.get("output", {}) if isinstance(safety_status, dict) else {}
+            if output_status.get("action") in {"sanitize", "refuse"}:
+                error_buckets["safety_flagged"] += 1
+
         avg_overall = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
 
         avg_criterion_scores = {}
         for criterion, scores in criterion_scores.items():
             avg_criterion_scores[criterion] = sum(scores) / len(scores) if scores else 0.0
 
-        # Find best and worst
         best_result = max(successful, key=lambda r: r.get("evaluation", {}).get("overall_score", 0.0)) if successful else None
         worst_result = min(successful, key=lambda r: r.get("evaluation", {}).get("overall_score", 0.0)) if successful else None
 
@@ -263,6 +247,7 @@ class SystemEvaluator:
                 "query": worst_result.get("query", "") if worst_result else "",
                 "score": worst_result.get("evaluation", {}).get("overall_score", 0.0) if worst_result else 0.0
             } if worst_result else None,
+            "error_analysis": error_buckets,
             "detailed_results": self.results
         }
 
