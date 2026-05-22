@@ -19,7 +19,8 @@ from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
 
-from src.autogen_orchestrator import AutoGenOrchestrator
+# Note: AutoGenOrchestrator is imported lazily inside initialize_session_state
+# to avoid hard dependency failures when optional AutoGen libraries are not installed.
 
 # Load environment variables
 load_dotenv()
@@ -43,7 +44,13 @@ def initialize_session_state():
         config = load_config()
         # Initialize AutoGen orchestrator
         try:
+            # Lazy import to avoid failing when optional AutoGen deps are missing
+            from src.autogen_orchestrator import AutoGenOrchestrator
             st.session_state.orchestrator = AutoGenOrchestrator(config)
+        except ImportError as e:
+            st.warning("AutoGen dependencies are not installed. The web UI will run in limited demo mode.\n"
+                       "To enable full functionality install the required packages (see README).")
+            st.session_state.orchestrator = None
         except Exception as e:
             st.error(f"Failed to initialize orchestrator: {e}")
             st.session_state.orchestrator = None

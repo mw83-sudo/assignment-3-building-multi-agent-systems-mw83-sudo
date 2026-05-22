@@ -103,6 +103,23 @@ python main.py --mode web
 streamlit run src/ui/streamlit_app.py
 ```
 
+## Quick demo (single-command)
+
+To run a single end-to-end demo (query → agents → synthesis → artifacts) and export artifacts (JSON session + Markdown answer + judge prompts), run:
+
+```bash
+python run_demo.py
+```
+
+This will write files to the `outputs/` directory:
+- `outputs/session_example.json` — full conversation history and metadata
+- `outputs/final_answer_example.md` — final synthesized answer with inline citations and a sources list
+- `outputs/judge_prompts_example.txt` — the two judge prompts used for evaluation (research quality and safety)
+
+A screenshot of the demo:
+
+![Demo screenshot](assets/screenshot.png)
+
 ### Batch evaluation scaffold
 
 ```bash

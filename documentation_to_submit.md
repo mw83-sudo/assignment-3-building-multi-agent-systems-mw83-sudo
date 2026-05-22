@@ -46,6 +46,28 @@ However, the evaluation should still be interpreted with modest caution. During 
 
 Overall, the evaluation shows that the system performs at a moderate quality level rather than an excellent one. The strongest area is clarity, while the weaker areas are factual accuracy and safety/evidence robustness, which is consistent with the system’s current limitations in source grounding and judge-output reliability.
 
+## Artifacts included in the repository
+
+The repository includes the following artifacts to support reproducibility and grading:
+
+- `run_demo.py` — single-command demo runner that exports session and artifacts (uses existing evaluation outputs as fallback when AutoGen dependencies are not installed).
+- `outputs/session_example.json` — exported session for a representative query (conversation history and metadata).
+- `outputs/final_answer_example.md` — final synthesized answer with inline citations and a sources list.
+- `outputs/judge_prompts_example.txt` — the two judge prompts (research quality and safety) used for evaluation when available.
+- `outputs/judge_outputs_example.json` — raw judge outputs for a representative query (research_quality and safety_reliability raw JSON).
+- `outputs/evaluation_20260423_120900.json` — full evaluation report used in the write-up.
+
+Reproducing the demo locally:
+
+1. Install dependencies (see `requirements.txt`) and set environment variables (copy `.env.example` to `.env` and fill API keys).
+2. Run the single-command demo:
+
+```bash
+python run_demo.py
+```
+
+If AutoGen / model dependencies are missing, `run_demo.py` will fall back to the included evaluation artifact and still generate `session_example.json` and other outputs so graders can inspect the required artifacts.
+
 ## Discussion and Limitations
 
 The final system demonstrates working end-to-end behavior in AutoGen, CLI, Streamlit web UI, and batch evaluation modes. In particular, the newest evaluation run completed successfully across 10 queries and produced an overall average score of 0.502, which is a clear improvement over the earlier 0.086 run. This suggests that the multi-agent orchestration, tool integration, and UI-facing packaging became substantially more stable over the course of implementation. This practical stability is also reflected in the CLI and Streamlit demos, where the system returned complete answers with citations, source counts, and interface-visible metadata.
